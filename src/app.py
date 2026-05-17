@@ -1,8 +1,10 @@
 import sys
+import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import streamlit as st
+from loader import DocumentLoader
 from vector_store import VectorStore
 from monitor import Monitor
 from guardrails import Guardrails
@@ -11,55 +13,102 @@ import config
 
 st.set_page_config(page_title="RAG Chat", page_icon="📚", layout="wide")
 
-# ── Sidebar ───────────────────────────────────────────────────
+# ── Read Groq API key (Streamlit secrets → .env fallback) ────
+groq_api_key = st.secrets.get("GROQ_API_KEY", config.GROQ_API_KEY)
 
+
+# ── Sidebar ───────────────────────────────────────────────────
 with st.sidebar:
     st.title("📚 RAG Chat")
-    st.caption("Ask questions about your AI/ML books")
+    st.caption("Ask questions about your uploaded PDFs")
     st.divider()
 
+    # API key warning
+    if not groq_api_key:
+        st.error("GROQ_API_KEY not set. Add it in Streamlit secrets or .env")
+
+    # PDF upload
+    st.subheader("1. Upload PDFs")
+    uploaded_files = st.file_uploader(
+        "Upload one or more PDF files",
+        type="pdf",
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
+
+    # Build index button
+    st.subheader("2. Build Index")
+    if st.button("Build Index", disabled=not uploaded_files or not groq_api_key, use_container_width=True):
+        with st.spinner("Processing PDFs and building index..."):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for f in uploaded_files:
+                    (Path(tmpdir) / f.name).write_bytes(f.getvalue())
+
+                loader = DocumentLoader(folder=tmpdir)
+                docs = loader.load_pdf()
+                chunks = loader.chunk_documents(docs)
+
+            vs = VectorStore()
+            vs.create_in_memory(chunks)
+
+            st.session_state.vs = vs
+            st.session_state.ready = True
+            st.session_state.messages = []
+            st.session_state.monitor = Monitor()
+            st.session_state.doc_names = [f.name for f in uploaded_files]
+
+        st.success(f"Index ready — {len(chunks)} chunks from {len(uploaded_files)} PDF(s)")
+
+    # Show loaded docs
+    if st.session_state.get("doc_names"):
+        st.caption("Loaded: " + ", ".join(st.session_state.doc_names))
+
+    st.divider()
+
+    # Settings
     st.subheader("Settings")
-    model = st.selectbox("LLM Model", ["llama3", "mistral", "gemma2"], index=0)
+    model = st.selectbox("LLM Model", ["llama3-8b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"], index=0)
     k = st.slider("Chunks retrieved (k)", min_value=1, max_value=8, value=config.RETRIEVAL_K)
+
     st.divider()
 
+    # Session stats
     st.subheader("Session Stats")
     stats_placeholder = st.empty()
 
     st.divider()
-    if st.button("Clear chat"):
+    if st.button("Clear chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
 
-# ── Session state ─────────────────────────────────────────────
-
+# ── Session state defaults ────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
 if "monitor" not in st.session_state:
     st.session_state.monitor = Monitor()
+if "ready" not in st.session_state:
+    st.session_state.ready = False
 
 
-# ── Load pipeline (cached so it only runs once) ───────────────
+# ── Main area ─────────────────────────────────────────────────
+st.header("Chat with your PDFs")
 
-@st.cache_resource(show_spinner="Loading vector store...")
-def load_pipeline(model: str, k: int):
-    vs = VectorStore()
-    vs.load()
-    guardrails = Guardrails()
-    return vs, guardrails
+if not st.session_state.ready:
+    st.info("Upload PDFs and click **Build Index** in the sidebar to get started.")
+    st.stop()
 
+# Rebuild RAGChain each turn (model/k may change via sidebar)
+rag = RAGChain(
+    vector_store=st.session_state.vs,
+    model=model,
+    k=k,
+    monitor=st.session_state.monitor,
+    guardrails=Guardrails(),
+    groq_api_key=groq_api_key
+)
 
-vs, guardrails = load_pipeline(model, k)
-monitor: Monitor = st.session_state.monitor
-rag = RAGChain(vs, model=model, k=k, monitor=monitor, guardrails=guardrails)
-
-
-# ── Chat history ──────────────────────────────────────────────
-
-st.header("Chat with your books")
-
+# Chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -70,16 +119,14 @@ for msg in st.session_state.messages:
             if not meta.get("blocked"):
                 cols = st.columns(4)
                 cols[0].metric("Chunks", meta["num_chunks"])
-                cols[1].metric("Relevance score", meta["avg_chunk_score"])
+                cols[1].metric("Relevance", meta["avg_chunk_score"])
                 cols[2].metric("Retrieval", f"{meta['retrieval_ms']}ms")
                 cols[3].metric("Generation", f"{meta['generation_ms']}ms")
                 if meta["sources"]:
                     st.caption(f"Sources: {', '.join(meta['sources'])}")
 
-
-# ── Input ─────────────────────────────────────────────────────
-
-query = st.chat_input("Ask a question about AI/ML...")
+# Input
+query = st.chat_input("Ask a question about your documents...")
 
 if query:
     st.session_state.messages.append({"role": "user", "content": query})
@@ -98,7 +145,7 @@ if query:
         if not result["blocked"]:
             cols = st.columns(4)
             cols[0].metric("Chunks", result["num_chunks"])
-            cols[1].metric("Relevance score", result["avg_chunk_score"])
+            cols[1].metric("Relevance", result["avg_chunk_score"])
             cols[2].metric("Retrieval", f"{result['retrieval_ms']}ms")
             cols[3].metric("Generation", f"{result['generation_ms']}ms")
             if result["sources"]:
@@ -110,8 +157,8 @@ if query:
         "meta": result
     })
 
-    # Update session stats in sidebar
-    stats = monitor.session_stats()
+    # Refresh sidebar stats
+    stats = st.session_state.monitor.session_stats()
     with stats_placeholder:
         st.metric("Total queries", stats["total_queries"])
         st.metric("Avg latency", f"{stats['avg_latency_ms']}ms")

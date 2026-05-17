@@ -4,9 +4,9 @@ import os
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-OLLAMA_BASE_URL   = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-LLM_MODEL         = os.getenv("LLM_MODEL", "llama3")
-EMBED_MODEL       = os.getenv("EMBED_MODEL", "nomic-embed-text")
+GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
+LLM_MODEL         = os.getenv("LLM_MODEL", "llama3-8b-8192")
+EMBED_MODEL       = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
 
 RETRIEVAL_K           = int(os.getenv("RETRIEVAL_K", 3))
 RELEVANCE_THRESHOLD   = float(os.getenv("RELEVANCE_THRESHOLD", 0.65))

@@ -1,31 +1,21 @@
-import httpx
 import time
 import shutil
+import tempfile
 from pathlib import Path
 from tqdm import tqdm
 from typing import List
 from langchain_core.documents import Document
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 import config
 
 
 class VectorStore:
     def __init__(self, model: str = config.EMBED_MODEL, db_path: str = config.DB_PATH):
-        self._check_ollama()
-        self.embeddings = OllamaEmbeddings(model=model)
+        self.embeddings = HuggingFaceEmbeddings(model_name=model)
         self.db_path = Path(db_path)
         self.db_path.mkdir(parents=True, exist_ok=True)
         self.vectorstore = None
-
-    def _check_ollama(self):
-        try:
-            resp = httpx.get(config.OLLAMA_BASE_URL, timeout=3)
-            resp.raise_for_status()
-        except httpx.ConnectError:
-            raise RuntimeError("Ollama is not running. Start it with: ollama serve")
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Ollama returned an error: {e}.")
 
     def create(self, chunks: List[Document], batch_size: int = 500):
         print(f"Creating embeddings for {len(chunks)} chunks...")
@@ -55,10 +45,27 @@ class VectorStore:
         print(f"Vector Store created in {elapsed}s with {len(chunks)} chunks.")
         return self.vectorstore
 
+    def create_in_memory(self, chunks: List[Document]):
+        """Build a temporary in-memory vector store (used by Streamlit Cloud)."""
+        if not chunks:
+            raise ValueError("No chunks provided.")
+
+        print(f"Building in-memory index for {len(chunks)} chunks...")
+        tmp = tempfile.mkdtemp()
+        self.vectorstore = Chroma.from_documents(
+            documents=chunks,
+            embedding=self.embeddings,
+            persist_directory=tmp,
+            collection_name="rag_docs",
+            collection_metadata={"hnsw:space": "cosine"}
+        )
+        print(f"In-memory index ready with {len(chunks)} chunks.")
+        return self.vectorstore
+
     def load(self):
         if not any(self.db_path.iterdir()):
             raise RuntimeError(
-                f"No vector store found at {self.db_path}. Run create first."
+                f"No vector store found at {self.db_path}. Run ingest.py first."
             )
         self.vectorstore = Chroma(
             persist_directory=str(self.db_path),
@@ -82,7 +89,7 @@ class VectorStore:
             return {
                 'total_chunks': count,
                 'db_path': str(self.db_path),
-                'embedding_model': self.embeddings.model
+                'embedding_model': self.embeddings.model_name
             }
         except Exception as e:
             return {'error': str(e)}

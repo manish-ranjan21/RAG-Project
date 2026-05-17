@@ -1,5 +1,5 @@
 import time
-from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 from monitor import Monitor
 from guardrails import Guardrails
 from vector_store import VectorStore
@@ -8,10 +8,15 @@ import config
 
 class RAGChain:
     def __init__(self, vector_store: VectorStore, model: str = config.LLM_MODEL,
-                 k: int = config.RETRIEVAL_K, monitor: Monitor = None, guardrails: Guardrails = None):
+                 k: int = config.RETRIEVAL_K, monitor: Monitor = None,
+                 guardrails: Guardrails = None, groq_api_key: str = None):
         self.vs = vector_store
         self.k = k
-        self.llm = ChatOllama(model=model, temperature=0)
+        self.llm = ChatGroq(
+            model=model,
+            temperature=0,
+            api_key=groq_api_key or config.GROQ_API_KEY
+        )
         self.monitor = monitor or Monitor()
         self.guardrails = guardrails or Guardrails()
 
