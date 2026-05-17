@@ -1,0 +1,33 @@
+# Virtual environment
+rag_venv/
+
+# Vector store data (rebuilt from PDFs)
+src/data/
+
+# PDFs — large files, not suited for git
+src/docs/
+
+# Query logs
+src/data/rag_queries.jsonl
+
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Claude Code internals
+.claude/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

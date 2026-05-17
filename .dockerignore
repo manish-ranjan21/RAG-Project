@@ -1,0 +1,10 @@
+rag_venv/
+src/data/
+src/docs/
+tests/
+.env
+.git/
+__pycache__/
+*.py[cod]
+.DS_Store
+.ipynb_checkpoints/

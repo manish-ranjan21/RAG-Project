@@ -1,0 +1,16 @@
+services:
+  rag-app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src/docs:/app/src/docs       # mount your PDFs here
+      - ./src/data:/app/src/data       # persist ChromaDB between restarts
+    env_file:
+      - .env
+    environment:
+      # Override so the container reaches Ollama on the host machine
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux support
+    restart: unless-stopped
