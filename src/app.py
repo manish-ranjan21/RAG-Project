@@ -16,16 +16,39 @@ st.set_page_config(page_title="RAG Chat", page_icon="📚", layout="wide")
 # ── Read Groq API key (Streamlit secrets → .env fallback) ────
 groq_api_key = st.secrets.get("GROQ_API_KEY", config.GROQ_API_KEY)
 
+# ── Block app if API key is missing ──────────────────────────
+if not groq_api_key:
+    st.error("GROQ_API_KEY is not set.")
+    st.markdown("""
+### Setup Instructions
+
+This app requires a free **Groq API key** to generate answers.
+
+#### On Streamlit Cloud:
+1. Open your app dashboard → **Settings → Secrets**
+2. Add the following:
+```toml
+GROQ_API_KEY = "your_groq_api_key_here"
+```
+3. Click **Save** — the app will restart automatically.
+
+#### Running locally:
+1. Copy `.env.example` to `.env`
+2. Set your key:
+```
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+#### Get a free Groq API key:
+[console.groq.com](https://console.groq.com) → Sign up → Create API Key (free, no credit card needed)
+""")
+    st.stop()
 
 # ── Sidebar ───────────────────────────────────────────────────
 with st.sidebar:
     st.title("📚 RAG Chat")
     st.caption("Ask questions about your uploaded PDFs")
     st.divider()
-
-    # API key warning
-    if not groq_api_key:
-        st.error("GROQ_API_KEY not set. Add it in Streamlit secrets or .env")
 
     # PDF upload
     st.subheader("1. Upload PDFs")
