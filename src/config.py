@@ -5,7 +5,7 @@ import os
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
-LLM_MODEL         = os.getenv("LLM_MODEL", "llama3-8b-8192")
+LLM_MODEL         = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 EMBED_MODEL       = os.getenv("EMBED_MODEL", "all-MiniLM-L6-v2")
 
 RETRIEVAL_K           = int(os.getenv("RETRIEVAL_K", 3))

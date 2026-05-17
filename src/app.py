@@ -90,7 +90,7 @@ with st.sidebar:
 
     # Settings
     st.subheader("Settings")
-    model = st.selectbox("LLM Model", ["llama3-8b-8192", "mixtral-8x7b-32768", "gemma2-9b-it"], index=0)
+    model = st.selectbox("LLM Model", ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"], index=0)
     k = st.slider("Chunks retrieved (k)", min_value=1, max_value=8, value=config.RETRIEVAL_K)
 
     st.divider()
