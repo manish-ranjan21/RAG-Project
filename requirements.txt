@@ -12,3 +12,6 @@ sentence-transformers
 tqdm
 pytest
 streamlit
+psycopg2-binary
+pgvector
+openai

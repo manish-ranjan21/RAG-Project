@@ -1,0 +1,32 @@
+# Standalone compose for the rag_chatbot ingestion pipeline.
+# Brings up only the pgvector database that steps 8 & 9 load into / query.
+# The Streamlit app has its own compose at the project root.
+#
+#   cd rag_chatbot_pipeline
+#   docker compose up -d
+#   export PGPASSWORD=REDACTED-DEV-PASSWORD
+#   python step8_LoadVectors_into_pgvector.py
+#   python step9_query_pgvector.py "your question"
+services:
+  pgvector:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ragchatbot
+      POSTGRES_USER: ragchatbot_loader
+      POSTGRES_PASSWORD: REDACTED-DEV-PASSWORD   # dev only — change for anything real
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Auto-applies the schema the FIRST time the volume is created.
+      # schema.sql now lives alongside this file in the pipeline folder.
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragchatbot_loader -d ragchatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
