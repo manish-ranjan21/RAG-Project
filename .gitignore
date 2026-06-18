@@ -3,9 +3,14 @@ rag_venv/
 
 # Vector store data (rebuilt from PDFs)
 src/data/
+rag_chatbot_pipeline/data/
 
 # PDFs — large files, not suited for git
 src/docs/
+rag_chatbot_pipeline/docs/
+
+# Pipeline runtime logs (regenerated)
+rag_chatbot_pipeline/**/logs/
 
 # Query logs
 src/data/rag_queries.jsonl

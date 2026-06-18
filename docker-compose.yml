@@ -1,4 +1,26 @@
 services:
+  # Open-source Postgres with the pgvector extension pre-installed.
+  # Image: https://hub.docker.com/r/pgvector/pgvector
+  pgvector:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ragchatbot
+      POSTGRES_USER: ragchatbot_loader
+      POSTGRES_PASSWORD: REDACTED-DEV-PASSWORD   # dev only — change for anything real
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Auto-applies the schema the FIRST time the volume is created.
+      # schema.sql now lives in the pipeline folder.
+      - ./rag_chatbot_pipeline/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragchatbot_loader -d ragchatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   rag-app:
     build: .
     ports:
@@ -13,4 +35,10 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"   # Linux support
+    depends_on:
+      pgvector:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  pgdata:
