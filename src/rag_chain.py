@@ -1,22 +1,26 @@
 import time
+
 from langchain_groq import ChatGroq
-from monitor import Monitor
-from guardrails import Guardrails
-from vector_store import VectorStore
+
 import config
+from guardrails import Guardrails
+from monitor import Monitor
+from vector_store import VectorStore
 
 
 class RAGChain:
-    def __init__(self, vector_store: VectorStore, model: str = config.LLM_MODEL,
-                 k: int = config.RETRIEVAL_K, monitor: Monitor = None,
-                 guardrails: Guardrails = None, groq_api_key: str = None):
+    def __init__(
+        self,
+        vector_store: VectorStore,
+        model: str = config.LLM_MODEL,
+        k: int = config.RETRIEVAL_K,
+        monitor: Monitor = None,
+        guardrails: Guardrails = None,
+        groq_api_key: str = None,
+    ):
         self.vs = vector_store
         self.k = k
-        self.llm = ChatGroq(
-            model=model,
-            temperature=0,
-            api_key=groq_api_key or config.GROQ_API_KEY
-        )
+        self.llm = ChatGroq(model=model, temperature=0, api_key=groq_api_key or config.GROQ_API_KEY)
         self.monitor = monitor or Monitor()
         self.guardrails = guardrails or Guardrails()
 
@@ -43,7 +47,12 @@ class RAGChain:
         relevant, relevance_warning = self.guardrails.check_relevance(avg_score)
         if not relevant:
             self.monitor.log(query, relevance_warning, sources, retrieval_ms, 0, avg_score)
-            return {"answer": relevance_warning, "sources": sources, "num_chunks": len(docs), "blocked": True}
+            return {
+                "answer": relevance_warning,
+                "sources": sources,
+                "num_chunks": len(docs),
+                "blocked": True,
+            }
 
         # Generation + timing
         prompt = (

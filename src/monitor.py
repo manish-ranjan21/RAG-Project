@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+
 import config
 
 
@@ -10,8 +11,15 @@ class Monitor:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._session = {"queries": 0, "total_latency": 0.0, "low_confidence": 0}
 
-    def log(self, query: str, answer: str, sources: list,
-            retrieval_ms: float, generation_ms: float, avg_score: float):
+    def log(
+        self,
+        query: str,
+        answer: str,
+        sources: list,
+        retrieval_ms: float,
+        generation_ms: float,
+        avg_score: float,
+    ):
         self._session["queries"] += 1
         self._session["total_latency"] += retrieval_ms + generation_ms
         if avg_score > 0.5:

@@ -1,5 +1,5 @@
 """Smoke test verifying the modules work without needing a DB or API key."""
-import sys
+
 import os
 
 os.environ["PGPASSWORD"] = "smoke_test"
@@ -7,10 +7,10 @@ os.environ["EMBEDDING_PROVIDER"] = "mock"
 os.environ["EMBEDDING_MODEL"] = "mock-embedder"
 os.environ["EMBEDDING_DIMENSION"] = "128"
 
-from retrieval.config import load_config
 from retrieval.cache import EmbeddingCache
+from retrieval.config import load_config
 from retrieval.embedder import build_embedder
-from retrieval.logging_setup import setup_logging, log_query, QueryContext
+from retrieval.logging_setup import log_query, setup_logging
 
 print("=" * 60)
 print("SMOKE TEST: Stage 9 Modules")
@@ -38,12 +38,13 @@ queries = [
 print("\nEmbedding queries (note cache hits):")
 for q in queries:
     vec, was_cached = embedder.embed(q)
-    print(f"  '{q[:35]}' → {len(vec)} dims, "
-          f"{'CACHE HIT' if was_cached else 'fresh'}")
+    print(f"  '{q[:35]}' → {len(vec)} dims, {'CACHE HIT' if was_cached else 'fresh'}")
 
 stats = cache.stats()
-print(f"\n✓ Cache stats: hit_rate={stats['hit_rate']*100:.0f}%, "
-      f"size={stats['size']}/{stats['max_entries']}")
+print(
+    f"\n✓ Cache stats: hit_rate={stats['hit_rate'] * 100:.0f}%, "
+    f"size={stats['size']}/{stats['max_entries']}"
+)
 
 print("\n✓ Query context tracking:")
 with log_query("test query", user_id="smoke_user") as ctx:
@@ -52,8 +53,7 @@ with log_query("test query", user_id="smoke_user") as ctx:
     ctx.cache_hit = was_cached
     ctx.results_returned = 5
     ctx.top_similarity = 0.87
-print(f"  Tracked: id={ctx.query_id[:8]}... "
-      f"duration={ctx.total_duration_seconds*1000:.0f}ms")
+print(f"  Tracked: id={ctx.query_id[:8]}... duration={ctx.total_duration_seconds * 1000:.0f}ms")
 
 print("\n" + "=" * 60)
 print("All smoke tests passed")

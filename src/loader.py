@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import List
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 import config
 
 
@@ -11,7 +12,7 @@ class DocumentLoader:
         self.folder = Path(folder)
         self.folder.mkdir(exist_ok=True)
 
-    def load_pdf(self) -> List[Document]:
+    def load_pdf(self) -> list[Document]:
         docs = []
         pdf_files = list(self.folder.glob("*.pdf"))
         print(f"Found {len(pdf_files)} PDFs.")
@@ -20,23 +21,24 @@ class DocumentLoader:
             loader = PyPDFLoader(str(pdf))
             pages = loader.load()
             for page in pages:
-                page.metadata['source_file'] = pdf.name
-                page.metadata['total_pages'] = len(pages)
+                page.metadata["source_file"] = pdf.name
+                page.metadata["total_pages"] = len(pages)
             docs.extend(pages)
 
         return docs
 
-    def chunk_documents(self, docs: List[Document]) -> List[Document]:
+    def chunk_documents(self, docs: list[Document]) -> list[Document]:
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=config.CHUNK_SIZE,
             chunk_overlap=config.CHUNK_OVERLAP,
             length_function=len,
-            separators=["\n\n", "\n", ".", " ", ""]
+            separators=["\n\n", "\n", ".", " ", ""],
         )
 
         chunks = splitter.split_documents(docs)
         chunks = [
-            c for c in chunks
+            c
+            for c in chunks
             if len(c.page_content.strip()) > 50
             and c.page_content.count("\n") < 10
             and not c.page_content.strip().isdigit()

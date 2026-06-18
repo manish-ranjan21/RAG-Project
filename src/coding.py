@@ -1,8 +1,8 @@
-from monitor import Monitor
-from guardrails import Guardrails
-from vector_store import VectorStore
-from rag_chain import RAGChain
 import config
+from guardrails import Guardrails
+from monitor import Monitor
+from rag_chain import RAGChain
+from vector_store import VectorStore
 
 
 def chat(model: str = config.LLM_MODEL, k: int = config.RETRIEVAL_K):
@@ -20,9 +20,11 @@ def chat(model: str = config.LLM_MODEL, k: int = config.RETRIEVAL_K):
         query = input("You: ").strip()
         if not query or query.lower() in ("quit", "exit", "q"):
             stats = monitor.session_stats()
-            print(f"\nSession: {stats['total_queries']} queries | "
-                  f"avg latency {stats['avg_latency_ms']}ms | "
-                  f"low-confidence answers: {stats['low_confidence_answers']}")
+            print(
+                f"\nSession: {stats['total_queries']} queries | "
+                f"avg latency {stats['avg_latency_ms']}ms | "
+                f"low-confidence answers: {stats['low_confidence_answers']}"
+            )
             print("Bye!")
             break
 
@@ -34,11 +36,13 @@ def chat(model: str = config.LLM_MODEL, k: int = config.RETRIEVAL_K):
         print(f"\nAnswer: {result['answer']}")
 
         if not result["blocked"]:
-            print(f"Sources: {', '.join(result['sources'])} | "
-                  f"chunks: {result['num_chunks']} | "
-                  f"score: {result['avg_chunk_score']} | "
-                  f"retrieval: {result['retrieval_ms']}ms | "
-                  f"generation: {result['generation_ms']}ms\n")
+            print(
+                f"Sources: {', '.join(result['sources'])} | "
+                f"chunks: {result['num_chunks']} | "
+                f"score: {result['avg_chunk_score']} | "
+                f"retrieval: {result['retrieval_ms']}ms | "
+                f"generation: {result['generation_ms']}ms\n"
+            )
 
 
 def test_search():
@@ -46,7 +50,7 @@ def test_search():
     vectorstore = vs.load()
     stats = vs.get_stats()
 
-    print(f"\nVector Store Statistics:")
+    print("\nVector Store Statistics:")
     print(f"    Total chunks: {stats['total_chunks']}")
     print(f"    Database: {stats['db_path']}")
     print(f"    Model: {stats['embedding_model']}")
@@ -55,13 +59,13 @@ def test_search():
         "What is AI?",
         "What is Machine Learning?",
         "What is deep learning?",
-        "What is LSTM?"
+        "What is LSTM?",
     ]
 
     for query in test_queries:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"\nQuery: {query}")
-        print('='*60)
+        print("=" * 60)
         results = vectorstore.similarity_search_with_score(query, k=3)
         for doc, score in results:
             print(f"Score: {score:.3f}")

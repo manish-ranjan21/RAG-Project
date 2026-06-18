@@ -16,10 +16,10 @@ All modes support:
 The interface is sync. To convert to async (for FastAPI), wrap calls with
 asyncio.to_thread() - the SQL itself doesn't benefit from async.
 """
+
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .config import RetrievalConfig
 from .database import ConnectionPool
@@ -33,21 +33,22 @@ log = logging.getLogger("retrieval.service")
 @dataclass
 class RetrievalResult:
     """One chunk returned from retrieval, with all metadata for downstream use."""
+
     chunk_id: str
     doc_id: str
     text: str
-    section_heading: Optional[str]
-    section_path: Optional[str]
-    page_range: Optional[tuple]
-    
-    vector_similarity: Optional[float] = None
-    keyword_score: Optional[float] = None
-    combined_score: Optional[float] = None
-    rerank_score: Optional[float] = None
-    
+    section_heading: str | None
+    section_path: str | None
+    page_range: tuple | None
+
+    vector_similarity: float | None = None
+    keyword_score: float | None = None
+    combined_score: float | None = None
+    rerank_score: float | None = None
+
     rank: int = 0
-    embedding_model: Optional[str] = None
-    
+    embedding_model: str | None = None
+
     def to_dict(self) -> dict:
         return {
             "chunk_id": self.chunk_id,
@@ -68,19 +69,18 @@ class RetrievalResult:
 @dataclass
 class RetrievalRequest:
     """The full set of options a caller can specify."""
+
     query: str
     top_k: int = 5
-    
-    access_classifications: list[str] = field(
-        default_factory=lambda: ["public", "internal"]
-    )
+
+    access_classifications: list[str] = field(default_factory=lambda: ["public", "internal"])
     access_groups: list[str] = field(default_factory=lambda: ["all_advisors"])
-    doc_types: Optional[list[str]] = None
-    
+    doc_types: list[str] | None = None
+
     search_mode: str = "hybrid"
     min_similarity: float = 0.0
 
-    hnsw_ef_search: Optional[int] = None
+    hnsw_ef_search: int | None = None
     rerank: bool = True
     return_full_text: bool = True
 
@@ -90,7 +90,7 @@ def _vector_literal(vec: list[float]) -> str:
     return "[" + ",".join(f"{x}" for x in vec) + "]"
 
 
-def _parse_page_range(pg_range_str) -> Optional[tuple]:
+def _parse_page_range(pg_range_str) -> tuple | None:
     """Postgres int4range comes back as '[1,5)' - parse to (1, 4)."""
     if pg_range_str is None:
         return None
@@ -101,28 +101,26 @@ def _parse_page_range(pg_range_str) -> Optional[tuple]:
 
 class RetrievalService:
     """Main retrieval service - one instance per process."""
-    
+
     def __init__(
         self,
         pool: ConnectionPool,
         embedder: CachedEmbedder,
         config: RetrievalConfig,
-        reranker: Optional[Reranker] = None
+        reranker: Reranker | None = None,
     ):
         self.pool = pool
         self.embedder = embedder
         self.config = config
         self.reranker = reranker
-    
+
     def retrieve(
-        self,
-        request: RetrievalRequest,
-        ctx: Optional[QueryContext] = None
+        self, request: RetrievalRequest, ctx: QueryContext | None = None
     ) -> list[RetrievalResult]:
         """Main entry point - dispatches to the right search mode."""
         if request.top_k > self.config.max_top_k:
             raise ValueError(f"top_k {request.top_k} exceeds max {self.config.max_top_k}")
-        
+
         if not request.query.strip():
             raise ValueError("Query cannot be empty")
 
@@ -130,8 +128,9 @@ class RetrievalService:
         # pool from the DB (recall), let the cross-encoder pick the best (precision),
         # then trim to top_k. Without rerank, fetch exactly top_k.
         do_rerank = request.rerank and self.reranker is not None
-        fetch_limit = (max(request.top_k, self.config.candidates_for_rerank)
-                       if do_rerank else request.top_k)
+        fetch_limit = (
+            max(request.top_k, self.config.candidates_for_rerank) if do_rerank else request.top_k
+        )
 
         if request.search_mode == "vector":
             results = self._vector_search(request, ctx, fetch_limit)
@@ -145,23 +144,24 @@ class RetrievalService:
         if do_rerank and len(results) > 1:
             results = self._rerank(request.query, results, ctx)
 
-        results = results[:request.top_k]
+        results = results[: request.top_k]
 
         for i, r in enumerate(results, 1):
             r.rank = i
-        
+
         if ctx:
             ctx.results_returned = len(results)
-            ctx.top_similarity = (results[0].vector_similarity or 
-                                  results[0].combined_score) if results else None
-        
+            ctx.top_similarity = (
+                (results[0].vector_similarity or results[0].combined_score) if results else None
+            )
+
         return results
-    
-    def _embed_query(self, query: str, ctx: Optional[QueryContext]) -> list[float]:
+
+    def _embed_query(self, query: str, ctx: QueryContext | None) -> list[float]:
         t0 = time.monotonic()
         vector, was_cached = self.embedder.embed(query)
         duration = time.monotonic() - t0
-        
+
         if ctx:
             ctx.embed_duration_seconds = duration
             ctx.cache_hit = was_cached
@@ -169,36 +169,40 @@ class RetrievalService:
             if not was_cached:
                 approx_tokens = len(query) // 4
                 ctx.estimated_cost_usd = self.embedder.estimate_cost(approx_tokens)
-        
+
         return vector
-    
+
     def _build_filters(self, request: RetrievalRequest):
         """Build the WHERE clause parameters for permission/filter clauses."""
         filters = ["c.access_classification = ANY(%s)", "c.access_groups && %s"]
         params = [request.access_classifications, request.access_groups]
-        
+
         if request.doc_types:
             filters.append("d.doc_type = ANY(%s)")
             params.append(request.doc_types)
-        
+
         filters.append("d.is_deleted = FALSE")
         filters.append("(d.effective_date IS NULL OR d.effective_date <= CURRENT_DATE)")
         filters.append("(d.expiry_date IS NULL OR d.expiry_date >= CURRENT_DATE)")
-        
+
         return " AND ".join(filters), params
-    
+
     def _vector_search(
-        self, request: RetrievalRequest, ctx: Optional[QueryContext], limit: int
+        self, request: RetrievalRequest, ctx: QueryContext | None, limit: int
     ) -> list[RetrievalResult]:
         """Pure vector similarity search."""
         query_vec = self._embed_query(request.query, ctx)
         vec_literal = _vector_literal(query_vec)
-        
+
         filter_clause, filter_params = self._build_filters(request)
         ef = request.hnsw_ef_search or self.config.hnsw_ef_search
-        
-        text_field = "c.text_for_embedding" if request.return_full_text else "left(c.text_for_embedding, 500)"
-        
+
+        text_field = (
+            "c.text_for_embedding"
+            if request.return_full_text
+            else "left(c.text_for_embedding, 500)"
+        )
+
         sql = f"""
             SELECT
                 c.chunk_id, c.doc_id,
@@ -213,10 +217,16 @@ class RetrievalService:
             ORDER BY c.embedding <=> %s::halfvec
             LIMIT %s
         """
-        
-        params = [vec_literal, *filter_params, vec_literal,
-                  request.min_similarity, vec_literal, limit]
-        
+
+        params = [
+            vec_literal,
+            *filter_params,
+            vec_literal,
+            request.min_similarity,
+            vec_literal,
+            limit,
+        ]
+
         t0 = time.monotonic()
         with self.pool.get_connection() as conn:
             with conn.cursor() as cur:
@@ -224,29 +234,36 @@ class RetrievalService:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
         sql_duration = time.monotonic() - t0
-        
+
         if ctx:
             ctx.sql_duration_seconds = sql_duration
             ctx.candidates_considered = ef
-        
+
         return [
             RetrievalResult(
-                chunk_id=row[0], doc_id=row[1], text=row[2],
-                section_heading=row[3], section_path=row[4],
+                chunk_id=row[0],
+                doc_id=row[1],
+                text=row[2],
+                section_heading=row[3],
+                section_path=row[4],
                 page_range=_parse_page_range(row[5]),
                 vector_similarity=float(row[6]),
-                embedding_model=row[7]
+                embedding_model=row[7],
             )
             for row in rows
         ]
-    
+
     def _keyword_search(
-        self, request: RetrievalRequest, ctx: Optional[QueryContext], limit: int
+        self, request: RetrievalRequest, ctx: QueryContext | None, limit: int
     ) -> list[RetrievalResult]:
         """Full-text search using tsvector + GIN index."""
         filter_clause, filter_params = self._build_filters(request)
-        text_field = "c.text_for_embedding" if request.return_full_text else "left(c.text_for_embedding, 500)"
-        
+        text_field = (
+            "c.text_for_embedding"
+            if request.return_full_text
+            else "left(c.text_for_embedding, 500)"
+        )
+
         sql = f"""
             SELECT
                 c.chunk_id, c.doc_id,
@@ -261,9 +278,9 @@ class RetrievalService:
             ORDER BY kw_score DESC
             LIMIT %s
         """
-        
+
         params = [request.query, *filter_params, request.query, limit]
-        
+
         t0 = time.monotonic()
         with self.pool.get_connection() as conn:
             with conn.cursor() as cur:
@@ -271,20 +288,23 @@ class RetrievalService:
                 rows = cur.fetchall()
         if ctx:
             ctx.sql_duration_seconds = time.monotonic() - t0
-        
+
         return [
             RetrievalResult(
-                chunk_id=row[0], doc_id=row[1], text=row[2],
-                section_heading=row[3], section_path=row[4],
+                chunk_id=row[0],
+                doc_id=row[1],
+                text=row[2],
+                section_heading=row[3],
+                section_path=row[4],
                 page_range=_parse_page_range(row[5]),
                 keyword_score=float(row[6]),
-                embedding_model=row[7]
+                embedding_model=row[7],
             )
             for row in rows
         ]
-    
+
     def _hybrid_search(
-        self, request: RetrievalRequest, ctx: Optional[QueryContext], limit: int
+        self, request: RetrievalRequest, ctx: QueryContext | None, limit: int
     ) -> list[RetrievalResult]:
         """Combine vector similarity and keyword score with configured weights."""
         query_vec = self._embed_query(request.query, ctx)
@@ -294,8 +314,12 @@ class RetrievalService:
         ef = request.hnsw_ef_search or self.config.hnsw_ef_search
         # CTE candidate pool must be at least as wide as the rows we return.
         candidates = max(self.config.candidates_for_rerank, limit)
-        text_field = "c.text_for_embedding" if request.return_full_text else "left(c.text_for_embedding, 500)"
-        
+        text_field = (
+            "c.text_for_embedding"
+            if request.return_full_text
+            else "left(c.text_for_embedding, 500)"
+        )
+
         sql = f"""
             WITH vec_hits AS (
                 SELECT c.chunk_id,
@@ -336,15 +360,24 @@ class RetrievalService:
             ORDER BY combined DESC
             LIMIT %s
         """
-        
+
         params = [
-            vec_literal, *filter_params, vec_literal, candidates,
-            request.query, *filter_params, request.query, candidates,
-            self.config.hybrid_vector_weight, self.config.hybrid_keyword_weight,
-            self.config.hybrid_vector_weight, self.config.hybrid_keyword_weight,
-            request.min_similarity, limit
+            vec_literal,
+            *filter_params,
+            vec_literal,
+            candidates,
+            request.query,
+            *filter_params,
+            request.query,
+            candidates,
+            self.config.hybrid_vector_weight,
+            self.config.hybrid_keyword_weight,
+            self.config.hybrid_vector_weight,
+            self.config.hybrid_keyword_weight,
+            request.min_similarity,
+            limit,
         ]
-        
+
         t0 = time.monotonic()
         with self.pool.get_connection() as conn:
             with conn.cursor() as cur:
@@ -354,22 +387,25 @@ class RetrievalService:
         if ctx:
             ctx.sql_duration_seconds = time.monotonic() - t0
             ctx.candidates_considered = candidates
-        
+
         return [
             RetrievalResult(
-                chunk_id=row[0], doc_id=row[1], text=row[2],
-                section_heading=row[3], section_path=row[4],
+                chunk_id=row[0],
+                doc_id=row[1],
+                text=row[2],
+                section_heading=row[3],
+                section_path=row[4],
                 page_range=_parse_page_range(row[5]),
                 vector_similarity=float(row[6]) if row[6] else 0.0,
                 keyword_score=float(row[7]) if row[7] else 0.0,
                 combined_score=float(row[8]),
-                embedding_model=row[9]
+                embedding_model=row[9],
             )
             for row in rows
         ]
-    
+
     def _rerank(
-        self, query: str, results: list[RetrievalResult], ctx: Optional[QueryContext]
+        self, query: str, results: list[RetrievalResult], ctx: QueryContext | None
     ) -> list[RetrievalResult]:
         """
         Rerank candidates with the configured reranker (cross-encoder by default,
@@ -383,10 +419,12 @@ class RetrievalService:
 
         try:
             scores = self.reranker.score(query, [r.text for r in results])
-            for result, score in zip(results, scores):
+            for result, score in zip(results, scores, strict=False):
                 result.rerank_score = float(score)
-            results.sort(key=lambda r: r.rerank_score if r.rerank_score is not None else float("-inf"),
-                         reverse=True)
+            results.sort(
+                key=lambda r: r.rerank_score if r.rerank_score is not None else float("-inf"),
+                reverse=True,
+            )
         except Exception as e:
             log.warning(f"Rerank failed ({e}); keeping retrieval order.")
 

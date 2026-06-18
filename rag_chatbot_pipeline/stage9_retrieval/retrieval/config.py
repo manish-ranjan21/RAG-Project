@@ -7,10 +7,10 @@ Validates everything on startup so you fail fast, not deep in a query.
 In production, secrets come from AWS Secrets Manager instead of .env;
 this module would be the only place that changes.
 """
+
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -27,8 +27,10 @@ class DatabaseConfig:
 
     def connection_string(self, hide_password: bool = False) -> str:
         pw = "***" if hide_password else self.password
-        return (f"postgresql://{self.user}:{pw}@{self.host}:{self.port}"
-                f"/{self.database}?sslmode={self.sslmode}")
+        return (
+            f"postgresql://{self.user}:{pw}@{self.host}:{self.port}"
+            f"/{self.database}?sslmode={self.sslmode}"
+        )
 
 
 @dataclass
@@ -37,7 +39,7 @@ class EmbeddingConfig:
     model_name: str
     model_version: str
     dimension: int
-    api_key: Optional[str] = None
+    api_key: str | None = None
     timeout_seconds: int = 30
     max_retries: int = 3
     cost_per_1k_tokens: float = 0.0
@@ -71,8 +73,8 @@ class RetrievalConfig:
 class ObservabilityConfig:
     log_level: str = "INFO"
     log_format: str = "json"
-    metrics_file: Optional[str] = None
-    query_log_file: Optional[str] = None
+    metrics_file: str | None = None
+    query_log_file: str | None = None
 
 
 @dataclass
@@ -89,11 +91,15 @@ class AppConfig:
 
     def _validate(self):
         if self.embedding.dimension <= 0:
-            raise ValueError(f"Embedding dimension must be positive, got {self.embedding.dimension}")
+            raise ValueError(
+                f"Embedding dimension must be positive, got {self.embedding.dimension}"
+            )
         if self.retrieval.default_top_k > self.retrieval.max_top_k:
             raise ValueError("default_top_k cannot exceed max_top_k")
-        if abs((self.retrieval.hybrid_vector_weight + 
-                self.retrieval.hybrid_keyword_weight) - 1.0) > 0.001:
+        if (
+            abs((self.retrieval.hybrid_vector_weight + self.retrieval.hybrid_keyword_weight) - 1.0)
+            > 0.001
+        ):
             raise ValueError("hybrid weights must sum to 1.0")
         if self.environment == "production" and not self.embedding.api_key:
             raise ValueError("API key required in production")
@@ -127,15 +133,15 @@ def _get_env(key: str, default=None, required: bool = False, cast=str):
             return str(value).lower() in ("true", "1", "yes", "on")
         return cast(value)
     except (ValueError, TypeError) as e:
-        raise ValueError(f"Failed to parse {key}={value} as {cast.__name__}: {e}")
+        raise ValueError(f"Failed to parse {key}={value} as {cast.__name__}: {e}") from e
 
 
-def load_config(env_file: Optional[Path] = None) -> AppConfig:
+def load_config(env_file: Path | None = None) -> AppConfig:
     """Load config from environment with validation."""
     if env_file is None:
         env_file = Path.cwd() / ".env"
     _load_dotenv(env_file)
-    
+
     db = DatabaseConfig(
         host=_get_env("PGHOST", "localhost"),
         port=_get_env("PGPORT", 5432, cast=int),
@@ -147,7 +153,7 @@ def load_config(env_file: Optional[Path] = None) -> AppConfig:
         pool_max_conn=_get_env("PG_POOL_MAX", 10, cast=int),
         statement_timeout_ms=_get_env("PG_STATEMENT_TIMEOUT_MS", 5000, cast=int),
     )
-    
+
     embedding = EmbeddingConfig(
         provider=_get_env("EMBEDDING_PROVIDER", "openai"),
         model_name=_get_env("EMBEDDING_MODEL", "text-embedding-3-large"),
@@ -158,13 +164,13 @@ def load_config(env_file: Optional[Path] = None) -> AppConfig:
         max_retries=_get_env("EMBEDDING_MAX_RETRIES", 3, cast=int),
         cost_per_1k_tokens=_get_env("EMBEDDING_COST_PER_1K", 0.00013, cast=float),
     )
-    
+
     cache = CacheConfig(
         enabled=_get_env("CACHE_ENABLED", True, cast=bool),
         max_entries=_get_env("CACHE_MAX_ENTRIES", 1000, cast=int),
         ttl_seconds=_get_env("CACHE_TTL_SECONDS", 3600, cast=int),
     )
-    
+
     retrieval = RetrievalConfig(
         default_top_k=_get_env("RETRIEVAL_DEFAULT_K", 5, cast=int),
         max_top_k=_get_env("RETRIEVAL_MAX_K", 50, cast=int),
@@ -178,17 +184,21 @@ def load_config(env_file: Optional[Path] = None) -> AppConfig:
         rerank_model=_get_env("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
         min_similarity_threshold=_get_env("MIN_SIMILARITY_THRESHOLD", 0.0, cast=float),
     )
-    
+
     observability = ObservabilityConfig(
         log_level=_get_env("LOG_LEVEL", "INFO"),
         log_format=_get_env("LOG_FORMAT", "text"),
         metrics_file=_get_env("METRICS_FILE", "logs/retrieval_metrics.jsonl"),
         query_log_file=_get_env("QUERY_LOG_FILE", "logs/query_log.jsonl"),
     )
-    
+
     environment = _get_env("ENVIRONMENT", "development")
-    
+
     return AppConfig(
-        db=db, embedding=embedding, cache=cache, retrieval=retrieval,
-        observability=observability, environment=environment
+        db=db,
+        embedding=embedding,
+        cache=cache,
+        retrieval=retrieval,
+        observability=observability,
+        environment=environment,
     )

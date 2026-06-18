@@ -1,15 +1,17 @@
 import sys
 import tempfile
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 import streamlit as st
-from loader import DocumentLoader
-from vector_store import VectorStore
-from monitor import Monitor
-from guardrails import Guardrails
-from rag_chain import RAGChain
+
 import config
+from guardrails import Guardrails
+from loader import DocumentLoader
+from monitor import Monitor
+from rag_chain import RAGChain
+from vector_store import VectorStore
 
 st.set_page_config(page_title="RAG Chat", page_icon="📚", layout="wide")
 
@@ -56,12 +58,14 @@ with st.sidebar:
         "Upload one or more PDF files",
         type="pdf",
         accept_multiple_files=True,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
     )
 
     # Build index button
     st.subheader("2. Build Index")
-    if st.button("Build Index", disabled=not uploaded_files or not groq_api_key, use_container_width=True):
+    if st.button(
+        "Build Index", disabled=not uploaded_files or not groq_api_key, use_container_width=True
+    ):
         with st.spinner("Processing PDFs and building index..."):
             with tempfile.TemporaryDirectory() as tmpdir:
                 for f in uploaded_files:
@@ -128,7 +132,7 @@ rag = RAGChain(
     k=k,
     monitor=st.session_state.monitor,
     guardrails=Guardrails(),
-    groq_api_key=groq_api_key
+    groq_api_key=groq_api_key,
 )
 
 # Chat history
@@ -174,11 +178,9 @@ if query:
             if result["sources"]:
                 st.caption(f"Sources: {', '.join(result['sources'])}")
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": result["answer"],
-        "meta": result
-    })
+    st.session_state.messages.append(
+        {"role": "assistant", "content": result["answer"], "meta": result}
+    )
 
     # Refresh sidebar stats
     stats = st.session_state.monitor.session_stats()

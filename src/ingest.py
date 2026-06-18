@@ -20,7 +20,7 @@ def ingest(rebuild: bool = False):
     vs.create(chunks)
     stats = vs.get_stats()
 
-    print(f"\nIngestion complete.")
+    print("\nIngestion complete.")
     print(f"    Total chunks : {stats['total_chunks']}")
     print(f"    Database     : {stats['db_path']}")
     print(f"    Embed model  : {stats['embedding_model']}")
@@ -28,5 +28,6 @@ def ingest(rebuild: bool = False):
 
 if __name__ == "__main__":
     import sys
+
     rebuild = "--rebuild" in sys.argv
     ingest(rebuild=rebuild)

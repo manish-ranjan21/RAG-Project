@@ -14,6 +14,7 @@ the standard "retrieve broad, rerank narrow" pattern.
 Same ABC + factory shape as embedder.py for consistency. The CrossEncoder model
 loads lazily on first use so --health-check / --mock / --no-rerank stay fast.
 """
+
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -54,11 +55,11 @@ class CrossEncoderReranker(Reranker):
             return
         try:
             from sentence_transformers import CrossEncoder
-        except ImportError:
+        except ImportError as e:
             raise RerankerError(
                 "sentence-transformers not installed. "
                 "pip install sentence-transformers (pulls in torch)."
-            )
+            ) from e
         t0 = time.monotonic()
         log.info(f"Loading cross-encoder '{self.model_name}' (first use)...")
         self._model = CrossEncoder(self.model_name)

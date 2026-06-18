@@ -17,27 +17,30 @@ Three embedder options demonstrated:
 - OpenAIEmbedder: most common, requires Azure OpenAI for banking
 - LocalBGEEmbedder: free, self-hosted, good for dev
 """
-import json
-import hashlib
-import time
-import logging
-from pathlib import Path
-from typing import Iterator
-from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
 
+import hashlib
+import json
+import logging
+import time
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from pathlib import Path
 from pathlib import Path as _Path
+
 from dotenv import load_dotenv
+
 # Read OPENAI_API_KEY (and friends) from the pipeline-local .env into os.environ.
 load_dotenv(_Path(__file__).resolve().parent / ".env")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class EmbeddingMetrics:
     """Track what happened during embedding for monitoring and cost attribution."""
+
     chunks_processed: int = 0
     chunks_skipped: int = 0
     chunks_failed: int = 0
@@ -55,18 +58,18 @@ def compute_content_hash(text: str) -> str:
 
 class Embedder(ABC):
     """Abstract interface so we can swap embedding providers cleanly."""
-    
+
     model_name: str = ""
     model_version: str = ""
     dimension: int = 0
     cost_per_1k_tokens: float = 0.0
     max_batch_size: int = 100
-    
+
     @abstractmethod
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts. Must handle retries internally."""
         pass
-    
+
     def estimate_cost(self, total_tokens: int) -> float:
         return (total_tokens / 1000) * self.cost_per_1k_tokens
 
@@ -77,14 +80,16 @@ class MockEmbedder(Embedder):
     In production, replace with BedrockCohereEmbedder, AzureOpenAIEmbedder, etc.
     Produces vectors based on text hash - same text always gives same vector.
     """
+
     model_name = "mock-bge-large-en-v1.5"
     model_version = "v1.5"
     dimension = 1024
     cost_per_1k_tokens = 0.0
     max_batch_size = 100
-    
+
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         import numpy as np
+
         vectors = []
         for text in texts:
             seed = int(hashlib.md5(text.encode()).hexdigest()[:8], 16)
@@ -100,79 +105,81 @@ class BedrockCohereEmbedder(Embedder):
     Production banking choice - uses Cohere via AWS Bedrock.
     Data stays in your AWS account. IAM authentication, audit logged.
     """
+
     model_name = "cohere.embed-english-v3"
     model_version = "v3"
     dimension = 1024
     cost_per_1k_tokens = 0.10 / 1000
     max_batch_size = 96
-    
+
     def __init__(self, region: str = "us-east-1"):
         import boto3
+
         self.client = boto3.client("bedrock-runtime", region_name=region)
-    
+
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         max_retries = 5
         backoff_base = 1.0
-        
+
         for attempt in range(max_retries):
             try:
-                body = json.dumps({
-                    "texts": texts,
-                    "input_type": "search_document",
-                    "truncate": "END"
-                })
-                
+                body = json.dumps(
+                    {"texts": texts, "input_type": "search_document", "truncate": "END"}
+                )
+
                 response = self.client.invoke_model(
                     modelId=self.model_name,
                     body=body,
                     contentType="application/json",
-                    accept="application/json"
+                    accept="application/json",
                 )
-                
+
                 result = json.loads(response["body"].read())
                 return result["embeddings"]
-                
+
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                wait = backoff_base * (2 ** attempt)
-                log.warning(f"Bedrock call failed (attempt {attempt+1}), retrying in {wait}s: {e}")
+                wait = backoff_base * (2**attempt)
+                log.warning(
+                    f"Bedrock call failed (attempt {attempt + 1}), retrying in {wait}s: {e}"
+                )
                 time.sleep(wait)
 
 
-class OpenAIEmbedder(Embedder):
+class AzureOpenAIEmbedder(Embedder):
     """
     Azure OpenAI - data residency compliant version of OpenAI.
     Required for banking if you want OpenAI models.
     """
+
     model_name = "text-embedding-3-large"
     model_version = "v3"
     dimension = 3072
     cost_per_1k_tokens = 0.13 / 1000
     max_batch_size = 100
-    
+
     def __init__(self, model: str = "text-embedding-3-large"):
-        from openai import OpenAI
         import os
+
+        from openai import OpenAI
+
         self.client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.model_name = model
-    
+
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         max_retries = 5
         backoff_base = 1.0
-        
+
         for attempt in range(max_retries):
             try:
-                response = self.client.embeddings.create(
-                    input=texts,
-                    model=self.deployment
-                )
+                response = self.client.embeddings.create(input=texts, model=self.deployment)
                 return [item.embedding for item in response.data]
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                wait = backoff_base * (2 ** attempt)
-                log.warning(f"Azure OpenAI failed (attempt {attempt+1}), retry in {wait}s: {e}")
+                wait = backoff_base * (2**attempt)
+                log.warning(f"Azure OpenAI failed (attempt {attempt + 1}), retry in {wait}s: {e}")
                 time.sleep(wait)
 
 
@@ -181,6 +188,7 @@ class OpenAIEmbedder(Embedder):
     Standard OpenAI API (api.openai.com).
     Simpler than Azure - only needs an API key, no endpoint or deployment.
     """
+
     model_name = "text-embedding-3-large"
     model_version = "v3"
     dimension = 3072
@@ -188,8 +196,10 @@ class OpenAIEmbedder(Embedder):
     max_batch_size = 100
 
     def __init__(self, model: str = "text-embedding-3-large"):
-        from openai import OpenAI
         import os
+
+        from openai import OpenAI
+
         self.client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.model_name = model
 
@@ -199,16 +209,13 @@ class OpenAIEmbedder(Embedder):
 
         for attempt in range(max_retries):
             try:
-                response = self.client.embeddings.create(
-                    input=texts,
-                    model=self.model_name
-                )
+                response = self.client.embeddings.create(input=texts, model=self.model_name)
                 return [item.embedding for item in response.data]
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                wait = backoff_base * (2 ** attempt)
-                log.warning(f"OpenAI failed (attempt {attempt+1}), retry in {wait}s: {e}")
+                wait = backoff_base * (2**attempt)
+                log.warning(f"OpenAI failed (attempt {attempt + 1}), retry in {wait}s: {e}")
                 time.sleep(wait)
 
 
@@ -218,37 +225,35 @@ class CheckpointStore:
     In production this is DynamoDB or Postgres. Here we use a JSON file.
     Enables idempotency and incremental re-runs.
     """
-    
+
     def __init__(self, checkpoint_path: str):
         self.path = Path(checkpoint_path)
         self.state = self._load()
-    
+
     def _load(self) -> dict:
         if self.path.exists():
             with open(self.path) as f:
                 return json.load(f)
         return {}
-    
+
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "w") as f:
             json.dump(self.state, f, indent=2)
-    
+
     def is_already_embedded(self, chunk_id: str, content_hash: str, model_version: str) -> bool:
         """Skip chunks that haven't changed and were embedded with same model."""
         record = self.state.get(chunk_id)
         if not record:
             return False
-        return (record["content_hash"] == content_hash and 
-                record["model_version"] == model_version)
-    
-    def mark_embedded(self, chunk_id: str, content_hash: str, model_version: str, 
-                       vector_path: str):
+        return record["content_hash"] == content_hash and record["model_version"] == model_version
+
+    def mark_embedded(self, chunk_id: str, content_hash: str, model_version: str, vector_path: str):
         self.state[chunk_id] = {
             "content_hash": content_hash,
             "model_version": model_version,
             "embedded_at": time.time(),
-            "vector_path": vector_path
+            "vector_path": vector_path,
         }
 
 
@@ -279,7 +284,7 @@ def embed_pipeline(
     checkpoint_path: str,
     embedder: Embedder,
     batch_size: int = 50,
-    force_reembed: bool = False
+    force_reembed: bool = False,
 ) -> EmbeddingMetrics:
     """
     Main embedding orchestration.
@@ -318,14 +323,14 @@ def embed_pipeline(
     all_chunks = list(chunks_iterator(chunks_path))
     total_chunks = len(all_chunks)
     log.info(f"Found {total_chunks} chunks to process")
-    
+
     chunks_to_embed = []
     skipped_chunks = []
-    
+
     for chunk in all_chunks:
         content_hash = compute_content_hash(chunk["text_for_embedding"])
         chunk["_content_hash"] = content_hash
-        
+
         if not force_reembed and checkpoint.is_already_embedded(
             chunk["chunk_id"], content_hash, embedder.model_version
         ):
@@ -333,16 +338,18 @@ def embed_pipeline(
             metrics.chunks_skipped += 1
         else:
             chunks_to_embed.append(chunk)
-    
-    log.info(f"Will embed {len(chunks_to_embed)} chunks "
-             f"({len(skipped_chunks)} skipped as already embedded)")
-    
+
+    log.info(
+        f"Will embed {len(chunks_to_embed)} chunks "
+        f"({len(skipped_chunks)} skipped as already embedded)"
+    )
+
     if not chunks_to_embed:
         log.info("Nothing to embed. All chunks already processed.")
         metrics.total_duration_seconds = time.time() - start_time
         append_run_log(metrics, run_log_path)
         return metrics
-    
+
     batch_iter = batch_chunks(iter(chunks_to_embed), batch_size)
 
     for batch_idx, batch in enumerate(batch_iter):
@@ -358,7 +365,7 @@ def embed_pipeline(
             metrics.total_tokens += batch_tokens
             metrics.total_cost_usd += embedder.estimate_cost(batch_tokens)
 
-            for chunk, vector in zip(batch, vectors):
+            for chunk, vector in zip(batch, vectors, strict=False):
                 embedded_record = {
                     "chunk_id": chunk["chunk_id"],
                     "doc_id": chunk["doc_id"],
@@ -372,7 +379,7 @@ def embed_pipeline(
                     "section_path": chunk.get("section_path"),
                     "page_range": chunk.get("page_range"),
                     "token_count": chunk.get("token_count"),
-                    "metadata": chunk.get("metadata", {})
+                    "metadata": chunk.get("metadata", {}),
                 }
 
                 # Upsert by chunk_id: replaces a stale vector, never duplicates it.
@@ -382,7 +389,7 @@ def embed_pipeline(
                     chunk_id=chunk["chunk_id"],
                     content_hash=chunk["_content_hash"],
                     model_version=embedder.model_version,
-                    vector_path=str(output_path)
+                    vector_path=str(output_path),
                 )
 
                 metrics.chunks_processed += 1
@@ -392,19 +399,23 @@ def embed_pipeline(
             flush_vectors()
             checkpoint.save()
 
-            log.info(f"Batch {batch_idx+1}: embedded {len(batch)} chunks, "
-                    f"{batch_tokens} tokens, "
-                    f"{batch_duration:.2f}s, "
-                    f"${embedder.estimate_cost(batch_tokens):.5f}")
+            log.info(
+                f"Batch {batch_idx + 1}: embedded {len(batch)} chunks, "
+                f"{batch_tokens} tokens, "
+                f"{batch_duration:.2f}s, "
+                f"${embedder.estimate_cost(batch_tokens):.5f}"
+            )
 
         except Exception as e:
-            log.error(f"Batch {batch_idx+1} failed permanently: {e}")
+            log.error(f"Batch {batch_idx + 1} failed permanently: {e}")
             metrics.chunks_failed += len(batch)
-            metrics.errors.append({
-                "batch_idx": batch_idx,
-                "chunk_ids": [c["chunk_id"] for c in batch],
-                "error": str(e)
-            })
+            metrics.errors.append(
+                {
+                    "batch_idx": batch_idx,
+                    "chunk_ids": [c["chunk_id"] for c in batch],
+                    "error": str(e),
+                }
+            )
 
     metrics.total_duration_seconds = time.time() - start_time
     append_run_log(metrics, run_log_path)
@@ -434,8 +445,10 @@ def append_run_log(metrics: EmbeddingMetrics, run_log_path: str) -> dict:
     }
     with open(p, "a") as f:
         f.write(json.dumps(record) + "\n")
-    log.info(f"Run #{record['run_number']}: processed={record['chunks_processed']}, "
-             f"skipped={record['chunks_skipped']}, failed={record['chunks_failed']}")
+    log.info(
+        f"Run #{record['run_number']}: processed={record['chunks_processed']}, "
+        f"skipped={record['chunks_skipped']}, failed={record['chunks_failed']}"
+    )
     return record
 
 
@@ -451,13 +464,15 @@ def write_metrics(metrics: EmbeddingMetrics, path: str):
         "total_duration_seconds": round(metrics.total_duration_seconds, 2),
         "avg_tokens_per_chunk": (
             round(metrics.total_tokens / metrics.chunks_processed, 1)
-            if metrics.chunks_processed > 0 else 0
+            if metrics.chunks_processed > 0
+            else 0
         ),
         "throughput_chunks_per_second": (
             round(metrics.chunks_processed / metrics.total_duration_seconds, 1)
-            if metrics.total_duration_seconds > 0 else 0
+            if metrics.total_duration_seconds > 0
+            else 0
         ),
-        "errors": metrics.errors
+        "errors": metrics.errors,
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -472,23 +487,27 @@ if __name__ == "__main__":
         description="Stage 7: production-grade embedding (incremental + idempotent)"
     )
     parser.add_argument(
-        "--reset", action="store_true",
+        "--reset",
+        action="store_true",
         help="Delete existing embeddings + checkpoint for a clean rebuild. "
-             "Demo / disaster-recovery only — NOT something a production run does by default."
+        "Demo / disaster-recovery only — NOT something a production run does by default.",
     )
     parser.add_argument(
-        "--force-reembed", action="store_true",
-        help="Re-embed every chunk even if unchanged (e.g. after an embedding-model upgrade)."
+        "--force-reembed",
+        action="store_true",
+        help="Re-embed every chunk even if unchanged (e.g. after an embedding-model upgrade).",
     )
     parser.add_argument("--batch-size", type=int, default=50)
     args = parser.parse_args()
 
-    base_dir = Path(__file__).resolve().parent  # self-contained: data/ lives in this pipeline folder
+    base_dir = (
+        Path(__file__).resolve().parent
+    )  # self-contained: data/ lives in this pipeline folder
     output_path = base_dir / "data" / "output"
-    chunks_path = output_path/ "ebook_chunks.jsonl"
-    embeddings_path = output_path/ "embeddings" / "ebook_embeddings.jsonl"
-    checkpoint_path = output_path/ "embeddings" / ".checkpoint.json"
-    metrics_path = output_path/ "embeddings" / "metrics.json"
+    chunks_path = output_path / "ebook_chunks.jsonl"
+    embeddings_path = output_path / "embeddings" / "ebook_embeddings.jsonl"
+    checkpoint_path = output_path / "embeddings" / ".checkpoint.json"
+    metrics_path = output_path / "embeddings" / "metrics.json"
 
     # Production default: PERSIST state across runs and embed only new/changed chunks.
     # A clean wipe is opt-in (--reset), never automatic — otherwise every run would
@@ -498,33 +517,33 @@ if __name__ == "__main__":
         Path(embeddings_path).unlink(missing_ok=True)
         Path(checkpoint_path).unlink(missing_ok=True)
 
-    embedder = OpenAIEmbedder()#MockEmbedder()
-    
+    embedder = OpenAIEmbedder()  # MockEmbedder()
+
     log.info(f"Starting embedding with {embedder.model_name} (dim={embedder.dimension})")
     log.info(f"Cost rate: ${embedder.cost_per_1k_tokens * 1000:.4f} per 1M tokens")
-    
+
     metrics = embed_pipeline(
         chunks_path=chunks_path,
         output_path=embeddings_path,
         checkpoint_path=checkpoint_path,
         embedder=embedder,
         batch_size=args.batch_size,
-        force_reembed=args.force_reembed
+        force_reembed=args.force_reembed,
     )
 
     metrics_dict = write_metrics(metrics, metrics_path)
-    
+
     print("\n" + "=" * 60)
     print("STAGE 7: EMBEDDING COMPLETE")
     print("=" * 60)
     for k, v in metrics_dict.items():
         if k != "errors":
             print(f"  {k}: {v}")
-    
+
     print(f"\nEmbeddings written: {embeddings_path}")
     print(f"Checkpoint state: {checkpoint_path}")
     print(f"Metrics: {metrics_path}")
-    
+
     print("\n" + "=" * 60)
     print("IDEMPOTENCY CHECK (re-run reuses the checkpoint, embeds nothing new)")
     print("=" * 60)
@@ -535,9 +554,9 @@ if __name__ == "__main__":
         checkpoint_path=checkpoint_path,
         embedder=embedder,
         batch_size=args.batch_size,
-        force_reembed=False
+        force_reembed=False,
     )
-    
+
     print(f"  Second run skipped: {metrics2.chunks_skipped}")
     print(f"  Second run embedded: {metrics2.chunks_processed}")
     print(f"  Second run cost: ${metrics2.total_cost_usd:.6f}")

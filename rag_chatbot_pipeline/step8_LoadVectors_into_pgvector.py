@@ -15,23 +15,24 @@ Note: this file demonstrates patterns. Without a live Postgres connection,
 the SQL operations are shown as the intended statements; in production
 they'd execute against RDS via psycopg2.
 """
-import json
-import time
-import logging
-import uuid
-import hashlib
-from pathlib import Path
-from typing import Iterator
-from dataclasses import dataclass, field
-from contextlib import contextmanager
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+import json
+import logging
+import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class LoadMetrics:
     """Track everything operational during the load."""
+
     chunks_inserted: int = 0
     chunks_updated: int = 0
     chunks_failed: int = 0
@@ -46,11 +47,13 @@ class LoadMetrics:
 # Database connection management
 # =====================================================================
 
+
 class DatabaseConfig:
     """
     Connection config for pgvector. In production, secrets come from
     AWS Secrets Manager / Parameter Store, not env vars.
     """
+
     def __init__(
         self,
         host: str = "localhost",
@@ -58,7 +61,7 @@ class DatabaseConfig:
         database: str = "ragchatbot",
         user: str = "ragchatbot_loader",
         secret_arn: str = None,
-        sslmode: str = "prefer"
+        sslmode: str = "prefer",
     ):
         self.host = host
         self.port = port
@@ -68,17 +71,19 @@ class DatabaseConfig:
         # against the local Docker container (no TLS). Use "require" for RDS.
         self.sslmode = sslmode
         self.secret_arn = secret_arn
-    
+
     def get_password(self) -> str:
         """In production: fetch from Secrets Manager. Here: env var."""
         import os
+
         if self.secret_arn:
             return self._fetch_from_secrets_manager()
         return os.environ.get("PGPASSWORD", "")
-    
+
     def _fetch_from_secrets_manager(self) -> str:
         """Production secret fetching."""
         import boto3
+
         client = boto3.client("secretsmanager")
         response = client.get_secret_value(SecretId=self.secret_arn)
         return json.loads(response["SecretString"])["password"]
@@ -93,14 +98,14 @@ def get_connection(config: DatabaseConfig):
     try:
         import psycopg2
         from pgvector.psycopg2 import register_vector
-        
+
         conn = psycopg2.connect(
             host=config.host,
             port=config.port,
             database=config.database,
             user=config.user,
             password=config.get_password(),
-            sslmode=config.sslmode
+            sslmode=config.sslmode,
         )
         # Set the session mode BEFORE running any query. register_vector()
         # below issues a catalog lookup that opens a transaction; if we tried
@@ -121,39 +126,47 @@ def get_connection(config: DatabaseConfig):
 
 class MockConnection:
     """Simulates a Postgres connection for demo purposes."""
+
     def __init__(self):
         self.statements = []
         self.rowcount = 0
-    
+
     def cursor(self):
         return MockCursor(self)
-    
-    def commit(self): pass
-    def rollback(self): pass
-    def close(self): pass
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
 
 
 class MockCursor:
     def __init__(self, conn):
         self.conn = conn
         self.rowcount = 0
-    
+
     def execute(self, sql, params=None):
         self.conn.statements.append((sql, params))
-    
+
     def executemany(self, sql, param_list):
         self.conn.statements.append((sql, f"<{len(param_list)} rows>"))
         self.rowcount = len(param_list)
-    
+
     def fetchone(self):
         return [str(uuid.uuid4())]
-    
-    def close(self): pass
+
+    def close(self):
+        pass
 
 
 # =====================================================================
 # Schema management
 # =====================================================================
+
 
 def apply_schema(conn, schema_path: str):
     """
@@ -162,7 +175,7 @@ def apply_schema(conn, schema_path: str):
     """
     with open(schema_path) as f:
         schema_sql = f.read()
-    
+
     cursor = conn.cursor()
     try:
         cursor.execute(schema_sql)
@@ -184,7 +197,7 @@ def verify_schema_version(conn, expected_version: str = "1.0") -> bool:
     try:
         cursor.execute("""
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = 'chunks'
             )
         """)
@@ -204,30 +217,40 @@ def verify_schema_version(conn, expected_version: str = "1.0") -> bool:
 # Run tracking
 # =====================================================================
 
+
 def create_ingestion_run(
     conn,
     pipeline_version: str,
     embedding_model: str,
     embedding_model_version: str,
     source_file: str,
-    operator: str = "automated_pipeline"
+    operator: str = "automated_pipeline",
 ) -> str:
     """Create a new run record. Returns run_id."""
     run_id = str(uuid.uuid4())
-    
+
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO ingestion_runs (
                 run_id, started_at, status, pipeline_version,
                 embedding_model, embedding_model_version, source_file, operator
             ) VALUES (%s, NOW(), 'running', %s, %s, %s, %s, %s)
-        """, (run_id, pipeline_version, embedding_model,
-              embedding_model_version, str(source_file), operator))
+        """,
+            (
+                run_id,
+                pipeline_version,
+                embedding_model,
+                embedding_model_version,
+                str(source_file),
+                operator,
+            ),
+        )
         conn.commit()
         log.info(f"Created ingestion run {run_id}")
         return run_id
-    except Exception as e:
+    except Exception:
         conn.rollback()
         raise
 
@@ -238,10 +261,11 @@ def complete_ingestion_run(conn, run_id: str, metrics: LoadMetrics):
     error_summary = None
     if metrics.errors:
         error_summary = json.dumps(metrics.errors[:5])
-    
+
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE ingestion_runs
             SET completed_at = NOW(),
                 status = %s,
@@ -249,11 +273,18 @@ def complete_ingestion_run(conn, run_id: str, metrics: LoadMetrics):
                 chunks_failed = %s,
                 error_summary = %s
             WHERE run_id = %s
-        """, (status, metrics.chunks_inserted + metrics.chunks_updated,
-              metrics.chunks_failed, error_summary, run_id))
+        """,
+            (
+                status,
+                metrics.chunks_inserted + metrics.chunks_updated,
+                metrics.chunks_failed,
+                error_summary,
+                run_id,
+            ),
+        )
         conn.commit()
         log.info(f"Marked run {run_id} as {status}")
-    except Exception as e:
+    except Exception:
         conn.rollback()
         raise
 
@@ -261,6 +292,7 @@ def complete_ingestion_run(conn, run_id: str, metrics: LoadMetrics):
 # =====================================================================
 # Document upserts
 # =====================================================================
+
 
 def upsert_document(conn, doc_record: dict, pipeline_version: str) -> bool:
     """
@@ -271,8 +303,9 @@ def upsert_document(conn, doc_record: dict, pipeline_version: str) -> bool:
         access_groups = doc_record.get("access_groups", [])
         if isinstance(access_groups, str):
             access_groups = [access_groups]
-        
-        cursor.execute("""
+
+        cursor.execute(
+            """
             INSERT INTO documents (
                 doc_id, doc_type, title, source_system, source_path,
                 content_hash, page_count, author, publication_date,
@@ -290,24 +323,26 @@ def upsert_document(conn, doc_record: dict, pipeline_version: str) -> bool:
                 metadata = EXCLUDED.metadata,
                 is_deleted = FALSE
             RETURNING (xmax = 0) AS was_inserted
-        """, (
-            doc_record["doc_id"],
-            doc_record.get("doc_type", "unknown"),
-            doc_record.get("title", "Untitled"),
-            doc_record.get("source_system", "unknown"),
-            doc_record.get("source_path", ""),
-            doc_record.get("content_hash", ""),
-            doc_record.get("page_count"),
-            doc_record.get("author"),
-            doc_record.get("publication_date"),
-            doc_record.get("effective_date"),
-            doc_record.get("expiry_date"),
-            doc_record.get("access_classification", "internal"),
-            access_groups,
-            pipeline_version,
-            json.dumps(doc_record.get("metadata", {}))
-        ))
-        
+        """,
+            (
+                doc_record["doc_id"],
+                doc_record.get("doc_type", "unknown"),
+                doc_record.get("title", "Untitled"),
+                doc_record.get("source_system", "unknown"),
+                doc_record.get("source_path", ""),
+                doc_record.get("content_hash", ""),
+                doc_record.get("page_count"),
+                doc_record.get("author"),
+                doc_record.get("publication_date"),
+                doc_record.get("effective_date"),
+                doc_record.get("expiry_date"),
+                doc_record.get("access_classification", "internal"),
+                access_groups,
+                pipeline_version,
+                json.dumps(doc_record.get("metadata", {})),
+            ),
+        )
+
         result = cursor.fetchone()
         was_inserted = result[0] if result else True
         conn.commit()
@@ -324,6 +359,7 @@ def upsert_document(conn, doc_record: dict, pipeline_version: str) -> bool:
 # Chunk upserts - the high-volume path
 # =====================================================================
 
+
 def upsert_chunk_batch(conn, batch: list, run_id: str) -> tuple:
     """
     Batch upsert using execute_values for efficiency.
@@ -331,60 +367,60 @@ def upsert_chunk_batch(conn, batch: list, run_id: str) -> tuple:
     """
     if not batch:
         return 0, 0, 0
-    
+
     try:
         from psycopg2.extras import execute_values
     except ImportError:
         execute_values = None
-    
+
     rows = []
     for record in batch:
         try:
             page_range = record.get("page_range")
             if page_range and len(page_range) == 2:
-                page_range_str = f"[{page_range[0]},{page_range[1]+1})"
+                page_range_str = f"[{page_range[0]},{page_range[1] + 1})"
             else:
                 page_range_str = None
-            
+
             access_groups = record.get("metadata", {}).get("access_groups", [])
             if isinstance(access_groups, str):
                 access_groups = [access_groups]
             if not access_groups:
                 access_groups = ["all_advisors"]
-            
-            access_class = record.get("metadata", {}).get(
-                "access_classification", "internal"
+
+            access_class = record.get("metadata", {}).get("access_classification", "internal")
+
+            rows.append(
+                (
+                    record["chunk_id"],
+                    record["doc_id"],
+                    run_id,
+                    record["embedding"],
+                    record["embedding_model"],
+                    record["embedding_model_version"],
+                    record["text_for_embedding"],
+                    record["content_hash"],
+                    record.get("section_path"),
+                    record.get("section_heading"),
+                    record.get("section_level"),
+                    page_range_str,
+                    record.get("chunk_index"),
+                    record.get("chunk_type"),
+                    record.get("chunk_strategy"),
+                    record.get("token_count"),
+                    access_class,
+                    access_groups,
+                    json.dumps(record.get("referenced_figures", [])),
+                    json.dumps(record.get("referenced_tables", [])),
+                    json.dumps(record.get("metadata", {})),
+                )
             )
-            
-            rows.append((
-                record["chunk_id"],
-                record["doc_id"],
-                run_id,
-                record["embedding"],
-                record["embedding_model"],
-                record["embedding_model_version"],
-                record["text_for_embedding"],
-                record["content_hash"],
-                record.get("section_path"),
-                record.get("section_heading"),
-                record.get("section_level"),
-                page_range_str,
-                record.get("chunk_index"),
-                record.get("chunk_type"),
-                record.get("chunk_strategy"),
-                record.get("token_count"),
-                access_class,
-                access_groups,
-                json.dumps(record.get("referenced_figures", [])),
-                json.dumps(record.get("referenced_tables", [])),
-                json.dumps(record.get("metadata", {}))
-            ))
         except KeyError as e:
             log.error(f"Skipping malformed record {record.get('chunk_id', '?')}: missing {e}")
-    
+
     if not rows:
         return 0, 0, len(batch)
-    
+
     cursor = conn.cursor()
     try:
         sql = """
@@ -411,14 +447,16 @@ def upsert_chunk_batch(conn, batch: list, run_id: str) -> tuple:
                OR chunks.embedding_model_version != EXCLUDED.embedding_model_version
             RETURNING (xmax = 0) AS was_inserted
         """
-        
+
         if execute_values:
-            template = ("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-                       "%s::int4range, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)")
+            template = (
+                "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+                "%s::int4range, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)"
+            )
             execute_values(cursor, sql, rows, template=template, page_size=100)
         else:
             cursor.execute(sql, ("<MOCK BATCH>",))
-        
+
         conn.commit()
         return len(rows), 0, len(batch) - len(rows)
     except Exception as e:
@@ -432,6 +470,7 @@ def upsert_chunk_batch(conn, batch: list, run_id: str) -> tuple:
 # =====================================================================
 # Streaming I/O
 # =====================================================================
+
 
 def embeddings_iterator(embeddings_path: str) -> Iterator[dict]:
     """Stream embedding records without loading into memory."""
@@ -472,12 +511,24 @@ def derive_document_metadata(first_chunk: dict) -> dict:
         "access_classification": metadata.get("access_classification", "internal"),
         "access_groups": metadata.get("access_groups", []),
         "metadata": {
-            k: v for k, v in metadata.items()
-            if k not in ("doc_title", "doc_type", "source_system", "source_path",
-                        "content_hash", "page_count", "author", "publication_date",
-                        "effective_date", "expiry_date", "access_classification",
-                        "access_groups")
-        }
+            k: v
+            for k, v in metadata.items()
+            if k
+            not in (
+                "doc_title",
+                "doc_type",
+                "source_system",
+                "source_path",
+                "content_hash",
+                "page_count",
+                "author",
+                "publication_date",
+                "effective_date",
+                "expiry_date",
+                "access_classification",
+                "access_groups",
+            )
+        },
     }
 
 
@@ -485,45 +536,45 @@ def derive_document_metadata(first_chunk: dict) -> dict:
 # Main pipeline
 # =====================================================================
 
+
 def load_pipeline(
     embeddings_path: str,
     db_config: DatabaseConfig,
     pipeline_version: str = "v1.0",
     batch_size: int = 100,
-    dead_letter_path: str = None
+    dead_letter_path: str = None,
 ) -> LoadMetrics:
     """
     Main entry point. Read embeddings JSONL, load into pgvector.
     """
     metrics = LoadMetrics()
     start_time = time.time()
-    
+
     embedding_model = None
     embedding_model_version = None
     docs_seen = set()
     dead_letter_records = []
-    
+
     with get_connection(db_config) as conn:
         if not verify_schema_version(conn):
             log.error("Schema verification failed - apply schema first")
             return metrics
-        
+
         first_record = next(embeddings_iterator(embeddings_path), None)
         if not first_record:
             log.warning("No embeddings to load")
             return metrics
-        
+
         embedding_model = first_record["embedding_model"]
         embedding_model_version = first_record["embedding_model_version"]
-        
+
         run_id = create_ingestion_run(
-            conn, pipeline_version, embedding_model,
-            embedding_model_version, embeddings_path
+            conn, pipeline_version, embedding_model, embedding_model_version, embeddings_path
         )
-        
+
         try:
             records = embeddings_iterator(embeddings_path)
-            
+
             for batch_idx, batch in enumerate(batch_records(records, batch_size)):
                 for record in batch:
                     if record["doc_id"] not in docs_seen:
@@ -537,34 +588,36 @@ def load_pipeline(
                             docs_seen.add(record["doc_id"])
                         except Exception as e:
                             log.error(f"Failed to upsert document {record['doc_id']}: {e}")
-                            metrics.errors.append({
-                                "type": "document_upsert",
-                                "doc_id": record["doc_id"],
-                                "error": str(e)
-                            })
-                
+                            metrics.errors.append(
+                                {
+                                    "type": "document_upsert",
+                                    "doc_id": record["doc_id"],
+                                    "error": str(e),
+                                }
+                            )
+
                 try:
                     inserted, updated, failed = upsert_chunk_batch(conn, batch, run_id)
                     metrics.chunks_inserted += inserted
                     metrics.chunks_updated += updated
                     metrics.chunks_failed += failed
                     metrics.batches_processed += 1
-                    
+
                     if (batch_idx + 1) % 10 == 0 or batch_idx == 0:
-                        log.info(f"Batch {batch_idx + 1}: "
-                                f"inserted={inserted} updated={updated} failed={failed} "
-                                f"(running total: {metrics.chunks_inserted})")
+                        log.info(
+                            f"Batch {batch_idx + 1}: "
+                            f"inserted={inserted} updated={updated} failed={failed} "
+                            f"(running total: {metrics.chunks_inserted})"
+                        )
                 except Exception as e:
                     log.error(f"Batch {batch_idx + 1} failed entirely: {e}")
                     metrics.chunks_failed += len(batch)
-                    metrics.errors.append({
-                        "type": "batch_failure",
-                        "batch_idx": batch_idx,
-                        "error": str(e)
-                    })
+                    metrics.errors.append(
+                        {"type": "batch_failure", "batch_idx": batch_idx, "error": str(e)}
+                    )
                     if dead_letter_path:
                         dead_letter_records.extend(batch)
-            
+
             complete_ingestion_run(conn, run_id, metrics)
         except Exception as e:
             log.error(f"Pipeline failed: {e}")
@@ -573,13 +626,13 @@ def load_pipeline(
                 cursor.execute(
                     "UPDATE ingestion_runs SET status = 'failed', "
                     "error_summary = %s, completed_at = NOW() WHERE run_id = %s",
-                    (str(e), run_id)
+                    (str(e), run_id),
                 )
                 conn.commit()
             except Exception:
                 pass
             raise
-    
+
     if dead_letter_records and dead_letter_path:
         Path(dead_letter_path).parent.mkdir(parents=True, exist_ok=True)
         with open(dead_letter_path, "a") as f:
@@ -588,7 +641,7 @@ def load_pipeline(
                 record["_run_id"] = run_id
                 f.write(json.dumps(record) + "\n")
         log.warning(f"Wrote {len(dead_letter_records)} failed records to dead-letter queue")
-    
+
     metrics.total_duration_seconds = time.time() - start_time
     return metrics
 
@@ -603,11 +656,14 @@ def write_metrics(metrics: LoadMetrics, path: str):
         "batches_processed": metrics.batches_processed,
         "total_duration_seconds": round(metrics.total_duration_seconds, 2),
         "throughput_chunks_per_second": (
-            round((metrics.chunks_inserted + metrics.chunks_updated) / 
-                  metrics.total_duration_seconds, 1)
-            if metrics.total_duration_seconds > 0 else 0
+            round(
+                (metrics.chunks_inserted + metrics.chunks_updated) / metrics.total_duration_seconds,
+                1,
+            )
+            if metrics.total_duration_seconds > 0
+            else 0
         ),
-        "errors": metrics.errors[:10]
+        "errors": metrics.errors[:10],
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -616,13 +672,13 @@ def write_metrics(metrics: LoadMetrics, path: str):
 
 
 if __name__ == "__main__":
-    base_dir = Path(__file__).resolve().parent              # self-contained: data/ & schema.sql live here
+    base_dir = Path(__file__).resolve().parent  # self-contained: data/ & schema.sql live here
     output_path = base_dir / "data" / "output"
-    embeddings_path = output_path /"embeddings"/"ebook_embeddings.jsonl"
-    metrics_path = output_path /"embeddings"/"metrics.json"
-    dead_letter_path = output_path/"ragChatbot_pipeline"/"dead_letter.jsonl"
-    schema_path = base_dir/ "schema.sql"
-    
+    embeddings_path = output_path / "embeddings" / "ebook_embeddings.jsonl"
+    metrics_path = output_path / "embeddings" / "metrics.json"
+    dead_letter_path = output_path / "ragChatbot_pipeline" / "dead_letter.jsonl"
+    schema_path = base_dir / "schema.sql"
+
     # Local Docker pgvector. No secret_arn → password is read from the
     # PGPASSWORD env var (export PGPASSWORD="$POSTGRES_PASSWORD" before running).
     # sslmode defaults to "prefer", which works against the local container.
@@ -632,20 +688,20 @@ if __name__ == "__main__":
         database="ragchatbot",
         user="ragchatbot_loader",
     )
-    
+
     log.info(f"Loading from: {embeddings_path}")
     log.info(f"Target: {db_config.database}@{db_config.host}")
-    
+
     metrics = load_pipeline(
         embeddings_path=embeddings_path,
         db_config=db_config,
         pipeline_version="v1.0",
         batch_size=100,
-        dead_letter_path=dead_letter_path
+        dead_letter_path=dead_letter_path,
     )
-    
+
     metrics_dict = write_metrics(metrics, metrics_path)
-    
+
     print("\n" + "=" * 60)
     print("STAGE 8: LOADING COMPLETE")
     print("=" * 60)

@@ -30,6 +30,7 @@ Usage:
     python build_corpus.py --chunks-only        # build chunks, no embedding/DB
     python build_corpus.py --force              # re-run layout/canonical from scratch
 """
+
 import argparse
 import importlib.util
 import json
@@ -121,12 +122,16 @@ def build_canonical_fallback(pdf_path: Path, doc_id: str, step6, target_tokens: 
     }
 
 
-def process_pdf(pdf_path: Path, modules: dict, force: bool, no_images: bool,
-                use_fallback: bool) -> list | None:
+def process_pdf(
+    pdf_path: Path, modules: dict, force: bool, no_images: bool, use_fallback: bool
+) -> list | None:
     """Run steps 2-6 for one PDF. Returns the chunk list, or None if the PDF
     has no extractable TOC (build_canonical_document returns None)."""
     step2, step3, step45, step6 = (
-        modules["step2"], modules["step3"], modules["step45"], modules["step6"]
+        modules["step2"],
+        modules["step3"],
+        modules["step45"],
+        modules["step6"],
     )
     doc_id = slugify_doc_id(pdf_path.stem)
     workdir = CORPUS / doc_id
@@ -135,7 +140,7 @@ def process_pdf(pdf_path: Path, modules: dict, force: bool, no_images: bool,
 
     # Fast path: reuse the canonical doc from a previous run (skip slow pdfplumber).
     if canonical_path.exists() and not force:
-        print(f"    reusing cached canonical_document.json")
+        print("    reusing cached canonical_document.json")
         return step6.chunk_document(str(canonical_path))
 
     routing_path = workdir / "image_routing.json"
@@ -145,27 +150,27 @@ def process_pdf(pdf_path: Path, modules: dict, force: bool, no_images: bool,
         # which are irrelevant to text retrieval. Skip them and feed an empty
         # routing file. On image-heavy books (e.g. AIMA's 4,705 figures) this
         # turns a ~40-80 min step3 into nothing.
-        print(f"    skipping layout/image-routing (--no-images)", flush=True)
+        print("    skipping layout/image-routing (--no-images)", flush=True)
         routing_path.write_text(json.dumps({"routing_decisions": [], "summary": {}}))
     else:
         # step 2: layout analysis
-        print(f"    step2 layout analysis...", flush=True)
+        print("    step2 layout analysis...", flush=True)
         layout = step2.extract_layout_elemnts(str(pdf_path))
         layout_path = workdir / "layout_analysis.json"
         layout_path.write_text(json.dumps(layout))
 
         # step 3: image region routing
-        print(f"    step3 image routing...", flush=True)
+        print("    step3 image routing...", flush=True)
         results, counts = step3.process_all_image_regions(str(layout_path), str(pdf_path))
         routing_path.write_text(json.dumps({"routing_decisions": results, "summary": counts}))
 
     # step 4-5: canonical document (TOC-driven). Returns None if no bookmarks.
-    print(f"    step4_5 canonical document...", flush=True)
+    print("    step4_5 canonical document...", flush=True)
     canonical = step45.build_canonical_document(str(pdf_path), doc_id, str(routing_path))
     if canonical is None:
         if not use_fallback:
             return None
-        print(f"    no TOC/bookmarks -> page-based fallback chunking...", flush=True)
+        print("    no TOC/bookmarks -> page-based fallback chunking...", flush=True)
         canonical = build_canonical_fallback(pdf_path, doc_id, step6)
         if canonical is None:
             return None
@@ -174,6 +179,7 @@ def process_pdf(pdf_path: Path, modules: dict, force: bool, no_images: bool,
     # with this PDF's real values so the `documents` table is correct.
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(str(pdf_path))
         page_count = len(reader.pages)
         meta = reader.metadata or {}
@@ -189,28 +195,42 @@ def process_pdf(pdf_path: Path, modules: dict, force: bool, no_images: bool,
     canonical_path.write_text(json.dumps(canonical))
 
     # step 6: section-aware chunking
-    print(f"    step6 chunking...", flush=True)
+    print("    step6 chunking...", flush=True)
     return step6.chunk_document(str(canonical_path))
 
 
 def main():
     parser = argparse.ArgumentParser(description="Multi-PDF RAG corpus builder")
-    parser.add_argument("--only", default=None,
-                        help="Only process PDFs whose filename contains this substring")
-    parser.add_argument("--chunks-only", action="store_true",
-                        help="Build chunks only; skip embedding (step7) and DB load (step8)")
-    parser.add_argument("--force", action="store_true",
-                        help="Re-run layout/canonical extraction even if cached")
-    parser.add_argument("--no-images", action="store_true",
-                        help="Skip layout (step2) + image routing (step3). Much faster on "
-                             "image-heavy PDFs; figure placeholders are omitted (no effect on "
-                             "text retrieval, since images are never embedded).")
-    parser.add_argument("--no-fallback", action="store_true",
-                        help="Disable the page-based fallback for PDFs with no bookmark "
-                             "outline. By default such PDFs are chunked by page text; with "
-                             "this flag they are skipped (original step4_5 behaviour).")
-    parser.add_argument("--include-loaded", action="store_true",
-                        help="Also (re)process PDFs already loaded under another doc_id")
+    parser.add_argument(
+        "--only", default=None, help="Only process PDFs whose filename contains this substring"
+    )
+    parser.add_argument(
+        "--chunks-only",
+        action="store_true",
+        help="Build chunks only; skip embedding (step7) and DB load (step8)",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Re-run layout/canonical extraction even if cached"
+    )
+    parser.add_argument(
+        "--no-images",
+        action="store_true",
+        help="Skip layout (step2) + image routing (step3). Much faster on "
+        "image-heavy PDFs; figure placeholders are omitted (no effect on "
+        "text retrieval, since images are never embedded).",
+    )
+    parser.add_argument(
+        "--no-fallback",
+        action="store_true",
+        help="Disable the page-based fallback for PDFs with no bookmark "
+        "outline. By default such PDFs are chunked by page text; with "
+        "this flag they are skipped (original step4_5 behaviour).",
+    )
+    parser.add_argument(
+        "--include-loaded",
+        action="store_true",
+        help="Also (re)process PDFs already loaded under another doc_id",
+    )
     args = parser.parse_args()
 
     CORPUS.mkdir(parents=True, exist_ok=True)
@@ -242,14 +262,15 @@ def main():
         print(f"\n[{i}/{len(pdfs)}] {pdf.name}", flush=True)
         t0 = time.time()
         try:
-            chunks = process_pdf(pdf, modules, args.force, args.no_images,
-                                 use_fallback=not args.no_fallback)
+            chunks = process_pdf(
+                pdf, modules, args.force, args.no_images, use_fallback=not args.no_fallback
+            )
             if chunks is None:
-                print(f"    SKIPPED: no TOC/bookmarks (build_canonical_document returned None)")
+                print("    SKIPPED: no TOC/bookmarks (build_canonical_document returned None)")
                 summary.append((pdf.name, "skipped (no TOC)", 0))
                 continue
             all_chunks.extend(chunks)
-            print(f"    OK: {len(chunks)} chunks in {time.time()-t0:.0f}s")
+            print(f"    OK: {len(chunks)} chunks in {time.time() - t0:.0f}s")
             summary.append((pdf.name, "ok", len(chunks)))
         except Exception as e:
             print(f"    ERROR: {e}")
@@ -298,7 +319,10 @@ def main():
         raise SystemExit("PGPASSWORD is not set — export it (see your .env) before running.")
     step8 = load_module("step8_LoadVectors_into_pgvector.py", "step8_load")
     db_config = step8.DatabaseConfig(
-        host="localhost", port=5432, database="ragchatbot", user="ragchatbot_loader",
+        host="localhost",
+        port=5432,
+        database="ragchatbot",
+        user="ragchatbot_loader",
     )
     step8.load_pipeline(
         embeddings_path=str(embeddings_path),

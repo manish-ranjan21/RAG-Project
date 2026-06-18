@@ -18,8 +18,9 @@ Usage:
     python src/step9_query_pgvector.py "your question here"
     python src/step9_query_pgvector.py "your question" --k 10
 """
-import os
+
 import argparse
+import os
 from pathlib import Path
 
 import psycopg2

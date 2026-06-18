@@ -1,0 +1,36 @@
+# Central tool config for the RAG project (ruff, pytest, coverage).
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# Notebooks and generated/data dirs are not linted.
+extend-exclude = ["*.ipynb", "rag_venv", "**/data", "**/__pycache__"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear, C4: comprehensions
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+# E501 (line too long) is handled by the formatter; B008 is noisy for FastAPI-style defaults.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]          # re-exports are fine
+"tests/*" = ["F401", "F811"]      # fixtures / re-imports
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]             # conftest.py adds src/ to sys.path
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: requires external services (DB, network)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Raise this over time as coverage improves.
+fail_under = 0

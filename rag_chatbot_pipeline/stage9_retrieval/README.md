@@ -152,7 +152,7 @@ cat logs/query_log.jsonl | jq '.total_duration_seconds' | sort -n | \
 
 # Cache hit rate
 cat logs/query_log.jsonl | jq -s '
-  {total: length, hits: map(select(.cache_hit)) | length} 
+  {total: length, hits: map(select(.cache_hit)) | length}
   | .hit_rate = (.hits / .total)
 '
 
