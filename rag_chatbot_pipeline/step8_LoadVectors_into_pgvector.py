@@ -624,7 +624,7 @@ if __name__ == "__main__":
     schema_path = base_dir/ "schema.sql"
     
     # Local Docker pgvector. No secret_arn → password is read from the
-    # PGPASSWORD env var (export PGPASSWORD=REDACTED-DEV-PASSWORD before running).
+    # PGPASSWORD env var (export PGPASSWORD="$POSTGRES_PASSWORD" before running).
     # sslmode defaults to "prefer", which works against the local container.
     db_config = DatabaseConfig(
         host="localhost",

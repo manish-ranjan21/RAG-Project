@@ -14,7 +14,7 @@ How it works:
 3. Print the hits so you can eyeball whether they're on-topic.
 
 Usage:
-    export PGPASSWORD=REDACTED-DEV-PASSWORD
+    export PGPASSWORD="$POSTGRES_PASSWORD"
     python src/step9_query_pgvector.py "your question here"
     python src/step9_query_pgvector.py "your question" --k 10
 """

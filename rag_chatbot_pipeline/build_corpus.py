@@ -24,7 +24,7 @@ re-runs (skip the slow pdfplumber passes) unless --force is given.
 
 Usage:
     cd rag_chatbot_pipeline
-    export PGPASSWORD=REDACTED-DEV-PASSWORD          # or rely on the dev default below
+    export PGPASSWORD="$POSTGRES_PASSWORD"      # the password from your .env
     python build_corpus.py                      # all PDFs (except already-loaded)
     python build_corpus.py --only "AI Engineering"   # filename substring filter
     python build_corpus.py --chunks-only        # build chunks, no embedding/DB
@@ -294,7 +294,8 @@ def main():
     print("\n" + "=" * 70)
     print("LOADING TO PGVECTOR (step8)")
     print("=" * 70, flush=True)
-    os.environ.setdefault("PGPASSWORD", "REDACTED-DEV-PASSWORD")
+    if not os.environ.get("PGPASSWORD"):
+        raise SystemExit("PGPASSWORD is not set — export it (see your .env) before running.")
     step8 = load_module("step8_LoadVectors_into_pgvector.py", "step8_load")
     db_config = step8.DatabaseConfig(
         host="localhost", port=5432, database="ragchatbot", user="ragchatbot_loader",

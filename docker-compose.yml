@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: ragchatbot
       POSTGRES_USER: ragchatbot_loader
-      POSTGRES_PASSWORD: REDACTED-DEV-PASSWORD   # dev only — change for anything real
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env}
     ports:
       - "5432:5432"
     volumes:
